@@ -79,7 +79,7 @@ examples = [
     "gsm8k-v1", "glossary-v1", "deepwiki-v1", "wiki-search-v1", "code-golf-v1",
     "proposer-solver-v1", "reverse-text-v1", "color-codeword-v1",
     "wordle-v1", "openenv-wordle-v1", "alphabet-sort-v1", "scratchpad-v1",
-    "kuhn-poker-v1",
+    "kuhn-poker-v1", "fifteen-puzzle",
 ]
 
 [project.optional-dependencies]
@@ -133,6 +133,7 @@ color-codeword-v1 = { path = "environments/color_codeword_v1", editable = true }
 alphabet-sort-v1 = { path = "environments/alphabet_sort_v1", editable = true }
 scratchpad-v1 = { path = "environments/scratchpad_v1", editable = true }
 kuhn-poker-v1 = { path = "environments/kuhn_poker_v1", editable = true }
+fifteen-puzzle = { path = "environments/fifteen_puzzle", editable = true }
 
 [tool.uv.exclude-newer-package]
 # PrimeIntellect-published on PyPI (trusted publisher)

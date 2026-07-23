@@ -17,48 +17,44 @@ class FifteenPuzzleState(vf.State):
     terminal_reason: str | None = None
 
 
-class FifteenPuzzleUser(vf.User[vf.UserConfig, FifteenPuzzleState]):
-    async def setup_task(self, task) -> None:
-        self.state.current_board = tuple(task.initial_board)
-        self.state.moves_taken = []
-        self.state.solved = False
-        self.state.episode_finished = False
-        self.state.illegal_move = False
-        self.state.format_failure = False
-        self.state.terminal_reason = None
-
-    async def respond(self, message: str) -> vf.Messages:
-        move = parse_move(message)
-
-        if move is None:
-            self.state.format_failure = True
-            self.state.episode_finished = True
-            self.state.terminal_reason = "format_failure"
-            return []
-
-        if move not in legal_moves(self.state.current_board):
-            self.state.illegal_move = True
-            self.state.episode_finished = True
-            self.state.terminal_reason = "illegal_move"
-            return []
-
-        next_board = apply_move(self.state.current_board, move)
-        self.state.current_board = next_board
-        self.state.moves_taken.append(move)
-
-        if is_solved(next_board):
-            self.state.solved = True
-            self.state.episode_finished = True
-            self.state.terminal_reason = "solved"
-            return []
-
-        return [
-            {
-                "role": "user",
-                "content": f"Board after move:\n{render(next_board)}\n\nContinue.",
-            }
-        ]
+def reset_state(state: FifteenPuzzleState, task) -> None:
+    state.current_board = tuple(task.initial_board)
+    state.moves_taken = []
+    state.solved = False
+    state.episode_finished = False
+    state.illegal_move = False
+    state.format_failure = False
+    state.terminal_reason = None
 
 
-if __name__ == "__main__":
-    FifteenPuzzleUser.run()
+def apply_response(state: FifteenPuzzleState, message: str) -> vf.Messages:
+    move = parse_move(message)
+
+    if move is None:
+        state.format_failure = True
+        state.episode_finished = True
+        state.terminal_reason = "format_failure"
+        return []
+
+    if move not in legal_moves(state.current_board):
+        state.illegal_move = True
+        state.episode_finished = True
+        state.terminal_reason = "illegal_move"
+        return []
+
+    next_board = apply_move(state.current_board, move)
+    state.current_board = next_board
+    state.moves_taken.append(move)
+
+    if is_solved(next_board):
+        state.solved = True
+        state.episode_finished = True
+        state.terminal_reason = "solved"
+        return []
+
+    return [
+        {
+            "role": "user",
+            "content": f"Board after move:\n{render(next_board)}\n\nContinue.",
+        }
+    ]

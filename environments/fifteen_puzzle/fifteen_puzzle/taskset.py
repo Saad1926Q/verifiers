@@ -1,6 +1,26 @@
 import verifiers.v1 as vf
 from fifteen_puzzle.protocol import build_initial_prompt
-from fifteen_puzzle.servers.user import FifteenPuzzleState, FifteenPuzzleUser
+from fifteen_puzzle.servers.user import (
+    FifteenPuzzleState,
+    apply_response,
+    reset_state,
+)
+
+
+DIFFICULTY_LEVELS: dict[tuple[int, int], str] = {
+    (1, 6): "trivial",
+    (7, 12): "easy",
+    (13, 24): "medium",
+    (25, 80): "hard",
+}
+
+
+def difficulty_level(optimal_length: int) -> str:
+    for (lower_bound, upper_bound), level in DIFFICULTY_LEVELS.items():
+        if lower_bound <= optimal_length <= upper_bound:
+            return level
+
+    raise ValueError(f"unsupported optimal_length: {optimal_length}")
 
 
 class FifteenPuzzleData(vf.TaskData):
@@ -10,19 +30,18 @@ class FifteenPuzzleData(vf.TaskData):
     initial_board: tuple[int, ...]
     optimal_soln: tuple[str, ...]
     optimal_length: int
+    difficulty_level: str
     split: str
 
 
 class FifteenPuzzleTaskConfig(vf.TaskConfig):
-    user: vf.UserConfig = vf.UserConfig()
+    pass
 
 
 class FifteenPuzzleTask(
     vf.Task[FifteenPuzzleData, FifteenPuzzleState, FifteenPuzzleTaskConfig]
 ):
     """Rewards, hooks, and servers, with row data available on ``self.data``."""
-
-    user = FifteenPuzzleUser
 
     @vf.stop
     async def episode_finished(self, trace: vf.Trace) -> bool:
@@ -63,6 +82,24 @@ class FifteenPuzzleTask(
         return self.data.optimal_length / len(trace.state.moves_taken)
 
 
+class FifteenPuzzleEnv(vf.SingleAgentEnv):
+    async def run(self, task, agents) -> None:
+        async with agents.agent.interaction(task) as interaction:
+            state = interaction.trace.state
+            reset_state(state, task.data)
+
+            segment = await interaction.turn()
+
+            while not segment.terminated and not state.episode_finished:
+                messages = apply_response(state, segment.last_reply)
+
+                if state.episode_finished:
+                    interaction.trace.stop(state.terminal_reason)
+                    break
+
+                segment = await interaction.turn(messages)
+
+
 class FifteenPuzzleConfig(vf.TasksetConfig):
     dataset_name: str = "saad1926q/15-puzzle"
     subset: str = "rl"
@@ -95,6 +132,7 @@ class FifteenPuzzleTaskset(vf.Taskset[FifteenPuzzleTask, FifteenPuzzleConfig]):
                 initial_board=board,
                 optimal_soln=optimal_soln,
                 optimal_length=row["optimal_length"],
+                difficulty_level=difficulty_level(row["optimal_length"]),
                 split=row["split"] if "split" in row else self.config.split,
             )
 
