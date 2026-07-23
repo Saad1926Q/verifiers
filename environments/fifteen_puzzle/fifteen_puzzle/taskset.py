@@ -1,3 +1,5 @@
+import math
+
 import verifiers.v1 as vf
 from fifteen_puzzle.protocol import build_initial_prompt
 from fifteen_puzzle.servers.user import (
@@ -6,21 +8,53 @@ from fifteen_puzzle.servers.user import (
     reset_state,
 )
 
-
-DIFFICULTY_LEVELS: dict[tuple[int, int], str] = {
-    (1, 6): "trivial",
-    (7, 12): "easy",
-    (13, 24): "medium",
-    (25, 80): "hard",
-}
+BUCKET_ORDER = ("trivial", "easy", "medium", "hard")
 
 
-def difficulty_level(optimal_length: int) -> str:
-    for (lower_bound, upper_bound), level in DIFFICULTY_LEVELS.items():
-        if lower_bound <= optimal_length <= upper_bound:
-            return level
+def gaussian_bucket_probs(
+    step: int,
+    total_steps: int,
+    num_buckets: int,
+    sigma: float,
+    beta: float,
+) -> list[float]:
+    if total_steps <= 0:
+        raise ValueError("total_steps must be positive")
+    if step < 0 or step > total_steps:
+        raise ValueError("step must be between 0 and total_steps")
+    if num_buckets <= 0:
+        raise ValueError("num_buckets must be positive")
+    if sigma <= 0:
+        raise ValueError("sigma must be positive")
 
-    raise ValueError(f"unsupported optimal_length: {optimal_length}")
+    progress = step / total_steps
+
+    center = progress**beta * (num_buckets - 1)
+
+    weights = [
+        math.exp(-((center - bucket_idx) ** 2) / (2 * sigma**2))
+        for bucket_idx in range(num_buckets)
+    ]
+
+    total = sum(weights)
+
+    return [weight / total for weight in weights]
+
+
+def group_rows_by_bucket(rows) -> dict[str, list]:
+    grouped = {bucket: [] for bucket in BUCKET_ORDER}
+
+    for row in rows:
+        bucket = row["bucket"]
+        if bucket not in grouped:
+            raise ValueError(f"unknown bucket: {bucket}")
+        grouped[bucket].append(row)
+
+    for bucket, bucket_rows in grouped.items():
+        if not bucket_rows:
+            raise ValueError(f"no rows found for bucket: {bucket}")
+
+    return grouped
 
 
 class FifteenPuzzleData(vf.TaskData):
@@ -30,7 +64,7 @@ class FifteenPuzzleData(vf.TaskData):
     initial_board: tuple[int, ...]
     optimal_soln: tuple[str, ...]
     optimal_length: int
-    difficulty_level: str
+    bucket: str
     split: str
 
 
@@ -106,11 +140,36 @@ class FifteenPuzzleConfig(vf.TasksetConfig):
     split: str = "rl"
     num_tasks: int = 5
     """How many tasks to build."""
+    curriculum_schedule: str = "none"
+    curriculum_step: int = 0
+    curriculum_total_steps: int = 3
+    sigma: float = 0.75
+    beta: float = 0.25
+    seed: int = 0
     task: FifteenPuzzleTaskConfig = FifteenPuzzleTaskConfig()
 
 
 class FifteenPuzzleTaskset(vf.Taskset[FifteenPuzzleTask, FifteenPuzzleConfig]):
+    def _build_task(self, row, idx: int) -> FifteenPuzzleTask:
+        board = tuple(row["board"])
+        optimal_soln = tuple(row["optimal_moves"])
+
+        data = FifteenPuzzleData(
+            idx=idx,
+            prompt=build_initial_prompt(board),
+            scramble_depth=row["scramble_depth"],
+            initial_board=board,
+            optimal_soln=optimal_soln,
+            optimal_length=row["optimal_length"],
+            bucket=row["bucket"],
+            split=row["split"] if "split" in row else self.config.split,
+        )
+
+        return FifteenPuzzleTask(data, self.config.task)
+
     def load(self) -> list[FifteenPuzzleTask]:
+        import random
+
         from datasets import load_dataset
 
         rows = load_dataset(
@@ -119,26 +178,37 @@ class FifteenPuzzleTaskset(vf.Taskset[FifteenPuzzleTask, FifteenPuzzleConfig]):
             split=self.config.split,
         )
 
-        tasks = []
+        if self.config.curriculum_schedule == "none":
+            tasks = []
 
-        for row in rows:
-            board = tuple(row["board"])
-            optimal_soln = tuple(row["optimal_moves"])
+            for row in rows:
+                tasks.append(self._build_task(row, len(tasks)))
 
-            data = FifteenPuzzleData(
-                idx=len(tasks),
-                prompt=build_initial_prompt(board),
-                scramble_depth=row["scramble_depth"],
-                initial_board=board,
-                optimal_soln=optimal_soln,
-                optimal_length=row["optimal_length"],
-                difficulty_level=difficulty_level(row["optimal_length"]),
-                split=row["split"] if "split" in row else self.config.split,
+                if len(tasks) >= self.config.num_tasks:
+                    break
+
+            return tasks
+
+        if self.config.curriculum_schedule != "gaussian":
+            raise ValueError(
+                f"unsupported curriculum_schedule: {self.config.curriculum_schedule}"
             )
 
-            tasks.append(FifteenPuzzleTask(data, self.config.task))
+        rows_by_bucket = group_rows_by_bucket(rows)
+        probs = gaussian_bucket_probs(
+            step=self.config.curriculum_step,
+            total_steps=self.config.curriculum_total_steps,
+            num_buckets=len(BUCKET_ORDER),
+            sigma=self.config.sigma,
+            beta=self.config.beta,
+        )
 
-            if len(tasks) >= self.config.num_tasks:
-                break
+        rng = random.Random(self.config.seed)
+        tasks = []
+
+        while len(tasks) < self.config.num_tasks:
+            bucket = rng.choices(BUCKET_ORDER, weights=probs, k=1)[0]
+            row = rng.choice(rows_by_bucket[bucket])
+            tasks.append(self._build_task(row, len(tasks)))
 
         return tasks
