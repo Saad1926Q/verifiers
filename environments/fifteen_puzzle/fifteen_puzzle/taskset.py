@@ -138,11 +138,10 @@ class FifteenPuzzleConfig(vf.TasksetConfig):
     dataset_name: str = "saad1926q/15-puzzle"
     subset: str = "rl"
     split: str = "rl"
-    num_tasks: int = 5
-    """How many tasks to build."""
     curriculum_schedule: str = "none"
     curriculum_step: int = 0
     curriculum_total_steps: int = 3
+    curriculum_pool_size: int | None = None
     sigma: float = 0.75
     beta: float = 0.25
     seed: int = 0
@@ -179,15 +178,7 @@ class FifteenPuzzleTaskset(vf.Taskset[FifteenPuzzleTask, FifteenPuzzleConfig]):
         )
 
         if self.config.curriculum_schedule == "none":
-            tasks = []
-
-            for row in rows:
-                tasks.append(self._build_task(row, len(tasks)))
-
-                if len(tasks) >= self.config.num_tasks:
-                    break
-
-            return tasks
+            return [self._build_task(row, idx) for idx, row in enumerate(rows)]
 
         if self.config.curriculum_schedule != "gaussian":
             raise ValueError(
@@ -204,9 +195,10 @@ class FifteenPuzzleTaskset(vf.Taskset[FifteenPuzzleTask, FifteenPuzzleConfig]):
         )
 
         rng = random.Random(self.config.seed)
+        target_count = self.config.curriculum_pool_size or len(rows)
         tasks = []
 
-        while len(tasks) < self.config.num_tasks:
+        while len(tasks) < target_count:
             bucket = rng.choices(BUCKET_ORDER, weights=probs, k=1)[0]
             row = rng.choice(rows_by_bucket[bucket])
             tasks.append(self._build_task(row, len(tasks)))
