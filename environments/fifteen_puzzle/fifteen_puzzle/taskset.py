@@ -141,7 +141,9 @@ class FifteenPuzzleConfig(vf.TasksetConfig):
     curriculum_schedule: str = "none"
     curriculum_step: int = 0
     curriculum_total_steps: int = 3
-    curriculum_pool_size: int | None = None
+    steps_per_stage: int | None = None
+    batch_size: int | None = None
+    group_size: int | None = None
     sigma: float = 0.75
     beta: float = 0.25
     seed: int = 0
@@ -186,6 +188,7 @@ class FifteenPuzzleTaskset(vf.Taskset[FifteenPuzzleTask, FifteenPuzzleConfig]):
             )
 
         rows_by_bucket = group_rows_by_bucket(rows)
+
         probs = gaussian_bucket_probs(
             step=self.config.curriculum_step,
             total_steps=self.config.curriculum_total_steps,
@@ -195,7 +198,19 @@ class FifteenPuzzleTaskset(vf.Taskset[FifteenPuzzleTask, FifteenPuzzleConfig]):
         )
 
         rng = random.Random(self.config.seed)
-        target_count = self.config.curriculum_pool_size or len(rows)
+
+        if (
+            self.config.steps_per_stage is not None
+            and self.config.batch_size is not None
+            and self.config.group_size is not None
+        ):
+            target_count = (
+                self.config.steps_per_stage
+                * self.config.batch_size
+                // self.config.group_size
+            )
+        else:
+            target_count = len(rows)
         tasks = []
 
         while len(tasks) < target_count:
