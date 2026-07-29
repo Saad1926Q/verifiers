@@ -3,8 +3,7 @@ from pydantic import Field
 import verifiers.v1 as vf
 
 from fifteen_puzzle.game.board import apply_move, is_solved, legal_moves
-from fifteen_puzzle.game.render import render
-from fifteen_puzzle.protocol import parse_move
+from fifteen_puzzle.protocol import build_board_prompt, parse_move
 
 
 class FifteenPuzzleState(vf.State):
@@ -55,6 +54,6 @@ def apply_response(state: FifteenPuzzleState, message: str) -> vf.Messages:
     return [
         {
             "role": "user",
-            "content": f"Board after move:\n{render(next_board)}\n\nContinue.",
+            "content": build_board_prompt(next_board),
         }
     ]

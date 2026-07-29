@@ -1,7 +1,7 @@
 import math
 
 import verifiers.v1 as vf
-from fifteen_puzzle.protocol import build_initial_prompt
+from fifteen_puzzle.protocol import build_board_prompt, build_system_prompt
 from fifteen_puzzle.servers.user import (
     FifteenPuzzleState,
     apply_response,
@@ -157,7 +157,8 @@ class FifteenPuzzleTaskset(vf.Taskset[FifteenPuzzleTask, FifteenPuzzleConfig]):
 
         data = FifteenPuzzleData(
             idx=idx,
-            prompt=build_initial_prompt(board),
+            prompt=build_board_prompt(board),
+            system_prompt=build_system_prompt(),
             scramble_depth=row["scramble_depth"],
             initial_board=board,
             optimal_soln=optimal_soln,
